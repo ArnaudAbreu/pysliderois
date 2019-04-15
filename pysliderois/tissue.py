@@ -1,6 +1,6 @@
 # coding: utf8
 import numpy
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 from skimage.morphology import dilation, erosion, closing
 from skimage.morphology import disk, square
 from skimage.morphology import remove_small_holes
