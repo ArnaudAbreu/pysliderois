@@ -110,7 +110,7 @@ def naive_patch_placement_optimization(mask, psize, verbose=False):
     placements = [gen_patch_coords(mask.shape, psize, o[0], o[1]) for o in offsets]
     scores = []
     dilated = dilation(mask, selem=disk(16))
-    eroded = erosion(dilated, selem=square(psize))
+    eroded = erosion(dilated, selem=square(int(0.25 * psize)))
 
     # debug...
     displaymask = dilated.astype(int) + mask.astype(int) + eroded.astype(int)
