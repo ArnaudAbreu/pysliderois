@@ -1,0 +1,375 @@
+# coding: utf8
+import numpy
+from matplotlib import pyplot as plt
+from skimage.morphology import dilation, erosion, closing
+from skimage.morphology import disk, square
+from skimage.morphology import remove_small_holes
+from skimage.measure import label
+from skimage.segmentation import mark_boundaries, relabel_sequential
+from skimage.draw import rectangle
+from joblib import Parallel, delayed
+import itertools
+from scipy.ndimage.morphology import distance_transform_edt as distance_transform
+
+
+def get_tissue(image, blacktol=0, whitetol=230):
+
+    """
+    Given an image and a tolerance on black and white pixels,
+    returns the corresponding tissue mask segmentation, i.e. true pixels
+    for the tissue, false pixels for the background.
+
+    Arguments:
+        - image: numpy ndarray, rgb image.
+        - blacktol: float or int, tolerance value for black pixels.
+        - whitetol: float or int, tolerance value for white pixels.
+
+    Returns:
+        - binarymask: true pixels are tissue, false are background.
+    """
+
+    binarymask = numpy.ones_like(image[:, :, 0], bool)
+
+    for color in range(3):
+        # for all color channel, find extreme values corresponding to black or white pixels
+        binarymask = numpy.logical_and(binarymask, image[:, :, color] < whitetol)
+        binarymask = numpy.logical_and(binarymask, image[:, :, color] > blacktol)
+
+    return binarymask
+
+
+def gen_patch_coords(shape, psize, offseti, offsetj):
+
+    """
+    Given a shape, a patchsize in pixels and an offset in pixels,
+    returns the coordinates of patches.
+
+    Arguments:
+        - shape: tuple of int shape of the image to patchify.
+        - psize: int, size in pixel of patch side.
+        - offseti: int, inf to psize, offset on lines for patch start.
+        - offsetj: int, inf to psize, offset on columns for patch start.
+
+    Returns:
+        - coords: tuple of numpy arrays, (icoords, jcoords).
+    """
+
+    maxi = max([offseti + psize, psize * int(shape[0] / psize)])
+    maxj = max([offsetj + psize, psize * int(shape[1] / psize)])
+    # print('gen_patch_coords: ', maxi, maxj)
+    col = numpy.arange(start=offsetj, stop=maxj, step=psize, dtype=int)
+    line = numpy.arange(start=offseti, stop=maxi, step=psize, dtype=int)
+    i = []
+    j = []
+
+    for p in itertools.product(line, col):
+        i.append(p[0])
+        j.append(p[1])
+
+    return numpy.array(i), numpy.array(j)
+
+
+def get_patch_children(node):
+
+    """
+    Given a patch returns the children patches.
+    """
+
+    x, y, level, size = node
+
+    if level == 0:
+
+        return node
+
+    children_level = level - 1
+    abs_size = size * (2 ** level)
+    children_abs_size = int(abs_size / 2)
+
+    return [(x, y, children_level, size),
+            (x + children_abs_size, y, children_level, size),
+            (x, y + children_abs_size, children_level, size),
+            (x + children_abs_size, y + children_abs_size, children_level, size)]
+
+
+def naive_patch_placement_optimization(mask, psize, verbose=False):
+
+    """
+    Given a mask and a patchsize in pixels, find the optimal
+    non-overlapping patch placement (the one that have the bigest
+    intersection with the mask)
+
+    Arguments:
+        - mask: numpy ndarray, binary mask of tissue.
+        - psize: patch side size in pixels.
+
+    Returns:
+        - coordinates: tuple of numpy arrays (icoords, jcoords).
+    """
+
+    offsets = itertools.product(list(range(psize)), list(range(psize)))
+    placements = [gen_patch_coords(mask.shape, psize, o[0], o[1]) for o in offsets]
+    scores = []
+    dilated = dilation(mask, selem=disk(16))
+    eroded = erosion(dilated, selem=square(psize))
+
+    # debug...
+    displaymask = dilated.astype(int) + mask.astype(int) + eroded.astype(int)
+    patchposmask = numpy.zeros_like(eroded)
+
+    for p in placements:
+        i, j = p
+        # print(i.dtype, j.dtype)
+        # print(i[0], j[0])
+        pmask = numpy.zeros_like(mask)
+        pmask[i, :] = True
+        pmask[:, j] = True
+        scores.append(numpy.logical_and(pmask, eroded).sum())
+
+    scores = numpy.array(scores)
+
+    # debug...
+    # print(scores.min(), scores.max())
+    idx = numpy.argmax(scores)
+
+    # filter patch position with mask intersection
+    finali = []
+    finalj = []
+
+    posi, posj = placements[idx]
+    for i, j in zip(posi, posj):
+        if eroded[i, j]:
+            # debug
+            patchposmask[i, :] = 1
+            patchposmask[:, j] = 1
+
+            finali.append(i)
+            finalj.append(j)
+
+    # debug
+    if verbose:
+        patchposmask = numpy.logical_and(patchposmask, eroded)
+        plt.figure(figsize=(10, 10), dpi=300)
+        plt.imshow(displaymask + dilation(patchposmask).astype(int))
+        plt.show()
+
+    return numpy.array(finali), numpy.array(finalj)
+
+
+def tile_at_level(slide, patchsize, level2tile, verbose=False):
+
+    """
+    Given a slide, a patchsize, a level max and a level to tile in the resolution pyramid,
+    returns the placement at the level to tile.
+
+    Arguments:
+        - slide: OpenSlide object.
+        - patchsize: int, size of patch side in pixels.
+        - level2tile: int, level to tile.
+
+    Returns:
+        - coordinates: list of tuples, (x, y, level, size) of patches at
+        level2tile.
+    """
+
+    imlowres = numpy.array(slide.read_region((0, 0), level2tile, slide.level_dimensions[level2tile]))[:, :, 0:3]
+    masklowres = get_tissue(imlowres)
+
+    posi, posj = naive_patch_placement_optimization(masklowres, patchsize, verbose=verbose)
+
+    posi *= (2 ** level2tile)
+    posj *= (2 ** level2tile)
+
+    coordinates = []
+
+    for i, j in zip(posi, posj):
+
+        coordinates.append((j, i, level2tile, patchsize))
+
+    return coordinates
+
+
+class PatchTree:
+
+    def __init__(self, slide, patchsize, levelmax, levelmin, verbose=False):
+
+        """
+        """
+
+        self.slide = slide
+        self.patchsize = patchsize
+        self.levelmax = levelmax
+        self.levelmin = levelmin
+        self.deltaread = int(numpy.log2(1024 / patchsize))
+
+        self.inipatches = tile_at_level(self.slide, self.patchsize, self.levelmax, verbose=verbose)
+
+        self.parents = dict()
+        self.children = dict()
+        self.children_read = dict()
+        self.predictions = dict()
+        self.warnings = dict()
+
+        for patch in self.inipatches:
+
+            self.parents[patch] = None
+
+        self.build()
+
+    def build_patch_tree(self, nodes):
+
+        """
+        """
+
+        level = nodes[0][2]
+
+        if level > self.levelmin:
+
+            next_nodes = []
+
+            for node in nodes:
+
+                children = get_patch_children(node)
+
+                next_nodes += children
+
+                self.children[node] = children
+
+                for child in children:
+
+                    self.parents[child] = node
+
+            self.build_patch_tree(next_nodes)
+
+    def set_children2read(self, node, level2read):
+
+        """
+        """
+
+        if node not in self.children_read.keys():
+
+            self.children_read[node] = dict()
+
+        read_level_dico = dict()
+
+        xstart, ystart, level, size = node
+
+        deltaread = level - level2read
+        m_shape = (self.patchsize * (2 ** deltaread), self.patchsize * (2 ** deltaread))
+
+        read_level_dico['imsize'] = m_shape
+
+        imy, imx = gen_patch_coords(m_shape, self.patchsize, 0, 0)
+        posy = imy * (2 ** level2read)
+        posx = imx * (2 ** level2read)
+        posx += xstart
+        posy += ystart
+
+        read_level_dico['imcoords'] = dict()
+
+        for k in range(len(posy)):
+            x = posx[k]
+            y = posy[k]
+            xim = imx[k]
+            yim = imy[k]
+            key = (x, y, level2read, self.patchsize)
+
+            if key in self.children or key in self.parents:
+                read_level_dico['imcoords'][(xim, yim)] = key
+
+        self.children_read[node][level2read] = read_level_dico
+
+    def build_read_tree(self, nodes):
+
+        """
+        """
+
+        level = nodes[0][2]
+        level2read = level - self.deltaread
+
+        if level2read >= self.levelmin:
+
+            children = []
+
+            if level == self.levelmax:
+
+                for l in range(level2read, self.levelmax + 1):
+                    for node in nodes:
+                        self.set_children2read(node, l)
+                        children += self.children[node]
+
+            # other cases, do the job exactly one time
+            else:
+
+                for node in nodes:
+                    self.set_children2read(node, level2read)
+                    children += self.children[node]
+
+            self.build_read_tree(children)
+
+    def build(self):
+
+        self.build_patch_tree(self.inipatches)
+        self.build_read_tree(self.inipatches)
+
+    def images_in_node_at_level(self, node, level, warnings):
+
+        """
+        """
+        if node not in self.children_read.keys():
+
+            return []
+
+        patchpyramid = self.children_read[node]
+
+        if level not in patchpyramid:
+
+            return []
+
+        rootx, rooty, rootlevel, rootsize = node
+
+        patchpyramidlevel = patchpyramid[level]
+
+        imagesize = patchpyramidlevel['imsize']
+
+        image = self.slide.read_region((rootx, rooty), level, imagesize)
+        image = numpy.array(image)[:, :, 0:3]
+
+        for coord in patchpyramidlevel['imcoords']:
+
+            x, y = coord
+
+            im = image[y:y + rootsize, x:x + rootsize]
+
+            if warnings:
+                mask = get_tissue(im)
+                self.warnings[patchpyramidlevel['imcoords'][coord]] = (mask.sum() < 0.7 * rootsize * rootsize)
+
+            yield coord, patchpyramidlevel['imcoords'][coord], im
+
+    def images_at_level(self, level, warnings=True):
+
+        """
+        """
+
+        readlevel = level + self.deltaread
+
+        # if level + deltaread >= levelmax, use inipatches as nodes
+        if readlevel >= self.levelmax:
+
+            nodes = self.inipatches
+
+        # if level + deltaread < levelmax, we have to get all nodes at level + deltaread
+        else:
+
+            nodes = [node for node in self.parents if node[2] == readlevel]
+
+        for node in nodes:
+
+            # get a batch of patches, one batch is a floor in the pyramid of root node
+            patchnimlist = [patchnim for patchnim in self.images_in_node_at_level(node, level, warnings=warnings)]
+            relpatchlist = [patchnim[0] for patchnim in patchnimlist]
+            abspatchlist = [patchnim[1] for patchnim in patchnimlist]
+            imlist = [patchnim[2] for patchnim in patchnimlist]
+
+            # yield batches of patches
+            yield relpatchlist, abspatchlist, imlist
