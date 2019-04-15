@@ -207,6 +207,7 @@ class PatchTree:
         self.children = dict()
         self.children_read = dict()
         self.predictions = dict()
+        self.variances = dict()
         self.warnings = dict()
 
         for patch in self.inipatches:
