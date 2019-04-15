@@ -203,6 +203,8 @@ class PatchTree:
 
         self.inipatches = tile_at_level(self.slide, self.patchsize, self.levelmax, verbose=verbose)
 
+        print('number of initial patches: ', len(self.inipatches))
+
         self.parents = dict()
         self.children = dict()
         self.children_read = dict()
