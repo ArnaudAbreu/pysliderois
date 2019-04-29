@@ -1,6 +1,5 @@
 # coding: utf8
 import numpy
-# from matplotlib import pyplot as plt
 from skimage.morphology import dilation, erosion, closing
 from skimage.morphology import disk, square
 from skimage.morphology import remove_small_holes
@@ -147,10 +146,11 @@ def naive_patch_placement_optimization(mask, psize, verbose=False):
 
     # debug
     if verbose:
+        from matplotlib import pyplot as plt
         patchposmask = numpy.logical_and(patchposmask, eroded)
-        # plt.figure(figsize=(10, 10), dpi=300)
-        # plt.imshow(displaymask + dilation(patchposmask).astype(int))
-        # plt.show()
+        plt.figure(figsize=(10, 10), dpi=300)
+        plt.imshow(displaymask + dilation(patchposmask).astype(int))
+        plt.show()
 
     return numpy.array(finali), numpy.array(finalj)
 
