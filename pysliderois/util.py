@@ -1,6 +1,7 @@
 # coding: utf8
 import numpy
 import os
+import itertools
 
 
 def iterpatches(slide, rois):
@@ -67,3 +68,12 @@ def slide_basename(slidepath):
     base = os.path.basename(slidepath)
     slidebasename = base[0:-len('.mrxs')]
     return slidebasename
+
+
+def regular_grid(shape, width):
+    maxi = width * int(shape[0] / width)
+    maxj = width * int(shape[1] / width)
+    col = numpy.arange(start=0, stop=maxj, step=width, dtype=int)
+    line = numpy.arange(start=0, stop=maxi, step=width, dtype=int)
+    for p in itertools.product(line, col):
+        yield p

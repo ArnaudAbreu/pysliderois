@@ -9,6 +9,7 @@ from skimage.draw import rectangle
 from joblib import Parallel, delayed
 import itertools
 from scipy.ndimage.morphology import distance_transform_edt as distance_transform
+from util import regular_grid
 
 
 def get_tissue(image, blacktol=0, whitetol=230):
@@ -37,7 +38,99 @@ def get_tissue(image, blacktol=0, whitetol=230):
     return binarymask
 
 
-def gen_patch_coords(shape, psize, offseti, offsetj):
+def slide_rois(slide, level, psize, interval, offsetx=0, offsety=0, coords=True, tissue=True):
+    """
+    Given a slide, a pyramid level, a patchsize in pixels, an interval in pixels
+    and an offset in pixels, returns the absolute coordinates of patches.
+
+    Arguments:
+        - slide: openslide object.
+        - level: int, pyramid level.
+        - psize: int
+        - interval: interval between 2 neighboring patches.
+        - offsetx: int, inf to psize, offset on x axis for patch start.
+        - offsety: int, inf to psize, offset on y axis for patch start.
+        - coords: bool, coordinates of patches will be yielded if set to True.
+        - tissue: bool, only images > 50% tissue will be yielded if set to True.
+
+    Yields:
+        - image: numpy array rgb image.
+        - coords: tuple of numpy arrays, (icoords, jcoords).
+    """
+    if tissue:
+        for patch in slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
+            yield patch
+    else:
+        for patch in slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
+            yield patch
+
+
+def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
+    """
+    Given a slide, a pyramid level, a patchsize in pixels, an interval in pixels
+    and an offset in pixels, returns the absolute coordinates of patches only
+    the ones with tissue > 50% surface.
+
+    Arguments:
+        - slide: openslide object.
+        - level: int, pyramid level.
+        - psize: int
+        - interval: interval between 2 neighboring patches.
+        - offsetx: int, inf to psize, offset on x axis for patch start.
+        - offsety: int, inf to psize, offset on y axis for patch start.
+        - coords: bool, coordinates of patches will be yielded if set to True.
+        - tissue: bool, only images > 50% tissue will be yielded if set to True.
+
+    Yields:
+        - image: numpy array rgb image.
+        - coords: tuple of numpy arrays, (icoords, jcoords).
+    """
+    dim = slide.level_dimensions[level]
+    for i, j in regular_grid((dim[1], dim[0]), interval):
+        y = i * (2 ** level) + offsety
+        x = j * (2 ** level) + offsetx
+        image = slide.read_region((x, y), level, (psize, psize))
+        image = numpy.array(image)[:, :, 0:3]
+        tissue_mask = get_tissue(image)
+        if tissue_mask.sum() > 0.5 * psize * psize:
+            if coords:
+                yield image, (x, y)
+            else:
+                yield image
+
+
+def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
+    """
+    Given a slide, a pyramid level, a patchsize in pixels, an interval in pixels
+    and an offset in pixels, returns the absolute coordinates of patches.
+
+    Arguments:
+        - slide: openslide object.
+        - level: int, pyramid level.
+        - psize: int
+        - interval: interval between 2 neighboring patches.
+        - offsetx: int, inf to psize, offset on x axis for patch start.
+        - offsety: int, inf to psize, offset on y axis for patch start.
+        - coords: bool, coordinates of patches will be yielded if set to True.
+        - tissue: bool, only images > 50% tissue will be yielded if set to True.
+
+    Yields:
+        - image: numpy array rgb image.
+        - coords: tuple of numpy arrays, (icoords, jcoords).
+    """
+    dim = slide.level_dimensions[level]
+    for i, j in regular_grid((dim[1], dim[0]), interval):
+        y = i * (2 ** level) + offsety
+        x = j * (2 ** level) + offsetx
+        image = slide.read_region((x, y), level, (psize, psize))
+        image = numpy.array(image)[:, :, 0:3]
+        if coords:
+            yield image, (x, y)
+        else:
+            yield image
+
+
+def gen_patch_coords(shape, psize, offseti=0, offsetj=0):
 
     """
     Given a shape, a patchsize in pixels and an offset in pixels,
