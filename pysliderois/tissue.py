@@ -9,10 +9,10 @@ from skimage.draw import rectangle
 from joblib import Parallel, delayed
 import itertools
 from scipy.ndimage.morphology import distance_transform_edt as distance_transform
-from util import regular_grid
+from .util import regular_grid
 
 
-def get_tissue(image, blacktol=0, whitetol=230):
+def get_tissue(image, blacktol=0, whitetol=200):
 
     """
     Given an image and a tolerance on black and white pixels,
