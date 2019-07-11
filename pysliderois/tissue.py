@@ -10,9 +10,10 @@ from joblib import Parallel, delayed
 import itertools
 from scipy.ndimage.morphology import distance_transform_edt as distance_transform
 from .util import regular_grid
+from skimage.exposure import is_low_contrast
 
 
-def get_tissue(image, blacktol=0, whitetol=200):
+def get_tissue(image, blacktol=0, whitetol=230):
 
     """
     Given an image and a tolerance on black and white pixels,
@@ -91,12 +92,13 @@ def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
         x = j * (2 ** level) + offsetx
         image = slide.read_region((x, y), level, (psize, psize))
         image = numpy.array(image)[:, :, 0:3]
-        tissue_mask = get_tissue(image)
-        if tissue_mask.sum() > 0.5 * psize * psize:
-            if coords:
-                yield image, (x, y)
-            else:
-                yield image
+        if not is_low_contrast(image):
+            tissue_mask = get_tissue(image)
+            if tissue_mask.sum() > 0.5 * psize * psize:
+                if coords:
+                    yield image, (x, y)
+                else:
+                    yield image
 
 
 def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
@@ -124,10 +126,11 @@ def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
         x = j * (2 ** level) + offsetx
         image = slide.read_region((x, y), level, (psize, psize))
         image = numpy.array(image)[:, :, 0:3]
-        if coords:
-            yield image, (x, y)
-        else:
-            yield image
+        if not is_low_contrast(image):
+            if coords:
+                yield image, (x, y)
+            else:
+                yield image
 
 
 def gen_patch_coords(shape, psize, offseti=0, offsetj=0):
