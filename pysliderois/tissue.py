@@ -9,7 +9,7 @@ from skimage.draw import rectangle
 from joblib import Parallel, delayed
 import itertools
 from scipy.ndimage.morphology import distance_transform_edt as distance_transform
-from .util import regular_grid
+from .util import regular_grid, log_magnification
 
 
 def get_tissue(image, blacktol=0, whitetol=230):
@@ -84,7 +84,7 @@ def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
         - coords: tuple of numpy arrays, (icoords, jcoords).
     """
     dim = slide.level_dimensions[level]
-    magnification = int(numpy.log2(slide.level_dimensions[0][0] / slide.level_dimensions[level][0]))
+    magnification = log_magnification(slide, level)
     for i, j in regular_grid((dim[1], dim[0]), interval):
         y = i * (2 ** magnification) + offsety
         x = j * (2 ** magnification) + offsetx
@@ -115,7 +115,7 @@ def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
         - coords: tuple of numpy arrays, (icoords, jcoords).
     """
     dim = slide.level_dimensions[level]
-    magnification = int(numpy.log2(slide.level_dimensions[0][0] / slide.level_dimensions[level][0]))
+    magnification = log_magnification(slide, level)
     for i, j in regular_grid((dim[1], dim[0]), interval):
         y = i * (2 ** magnification) + offsety
         x = j * (2 ** magnification) + offsetx
