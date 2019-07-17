@@ -81,9 +81,10 @@ def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
         - coords: tuple of numpy arrays, (icoords, jcoords).
     """
     dim = slide.level_dimensions[level]
+    magnification = int(numpy.log2(slide.level_dimensions[0][0] / slide.level_dimensions[level][0]))
     for i, j in regular_grid((dim[1], dim[0]), interval):
-        y = i * (2 ** level) + offsety
-        x = j * (2 ** level) + offsetx
+        y = i * (2 ** magnification) + offsety
+        x = j * (2 ** magnification) + offsetx
         image = slide.read_region((x, y), level, (psize, psize))
         image = numpy.array(image)[:, :, 0:3]
         if coords:
