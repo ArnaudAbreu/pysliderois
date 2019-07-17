@@ -8,6 +8,10 @@ def log_magnification(slide, level):
     return int(numpy.log2(slide.level_dimensions[0][0] / slide.level_dimensions[level][0]))
 
 
+def magnification(slide, level):
+    return int(slide.level_dimensions[0][0] / slide.level_dimensions[level][0])
+
+
 def iterpatches(slide, rois):
 
     for patch in rois:
