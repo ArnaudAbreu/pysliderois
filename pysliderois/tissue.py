@@ -12,7 +12,7 @@ import itertools
 from scipy.ndimage.morphology import distance_transform_edt as distance_transform
 from .util import regular_grid, magnification
 
-
+# coucou
 def get_tissue(image, blacktol=0, whitetol=230):
 
     """
