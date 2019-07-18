@@ -1,5 +1,6 @@
 # coding: utf8
 import numpy
+import openslide
 from skimage.morphology import dilation, erosion, closing
 from skimage.morphology import disk, square
 from skimage.morphology import remove_small_holes
@@ -88,12 +89,15 @@ def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
     for i, j in regular_grid((dim[1], dim[0]), interval):
         y = i * mag + offsety
         x = j * mag + offsetx
-        image = slide.read_region((x, y), level, (psize, psize))
-        image = numpy.array(image)[:, :, 0:3]
-        if coords:
-            yield image, (x, y)
-        else:
-            yield image
+        try:
+            image = slide.read_region((x, y), level, (psize, psize))
+            image = numpy.array(image)[:, :, 0:3]
+            if coords:
+                yield image, (x, y)
+            else:
+                yield image
+        except openslide.lowlevel.OpenSlideError:
+            print("small failure while reading tile ", x, ' ', y, ' in ', slide._filename)
 
 
 def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
@@ -119,13 +123,16 @@ def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
     for i, j in regular_grid((dim[1], dim[0]), interval):
         y = i * mag + offsety
         x = j * mag + offsetx
-        image = slide.read_region((x, y), level, (psize, psize))
-        image = numpy.array(image)[:, :, 0:3]
-        if get_tissue(image).sum() > 0.5 * psize * psize:
-            if coords:
-                yield image, (x, y)
-            else:
-                yield image
+        try:
+            image = slide.read_region((x, y), level, (psize, psize))
+            image = numpy.array(image)[:, :, 0:3]
+            if get_tissue(image).sum() > 0.5 * psize * psize:
+                if coords:
+                    yield image, (x, y)
+                else:
+                    yield image
+        except openslide.lowlevel.OpenSlideError:
+            print("small failure while reading tile ", x, ' ', y, ' in ', slide._filename)
 
 
 def gen_patch_coords(shape, psize, offseti=0, offsetj=0):
