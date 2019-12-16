@@ -23,6 +23,8 @@ parser.add_argument("--infolder", type=str, help="path to slide folder.")
 
 parser.add_argument("--outfolder", type=str, help="path to outfolder.")
 
+parser.add_argument("--ratiotissue", type=float, default=0.5, help="tissue ration per patch.")
+
 args = parser.parse_args()
 
 
@@ -38,31 +40,35 @@ def m_regular_seed(shape, width):
         yield p
 
 
-def slide_rois(slide):
+def slide_rois(slide, level, interval):
 
-    dim = slide.level_dimensions[args.level]
+    dim = slide.level_dimensions[level]
 
-    for i, j in m_regular_seed((dim[1], dim[0]), args.interval):
+    for i, j in m_regular_seed((dim[1], dim[0]), interval):
 
-        yield i * (2 ** args.level), j * (2 ** args.level)
+        yield i * (2 ** level), j * (2 ** level)
 
 
 for slidepath in slidepaths:
 
     slide = OpenSlide(slidepath)
 
-    rois = slide_rois(slide)
+    rois = slide_rois(slide, args.level, args.size*int(1.5**max(0, 5-args.level)))
 
-    for i, j in slide_rois(slide):
+    base_name = slide_basename(slidepath)
 
-        outname = slide_basename(slidepath) + '_' + str(j) + '_' + str(i) + '.png'
+    base_dir = os.path.join(args.outfolder, base_name)
+
+    for i, j in rois:
+
+        outname = base_name + '_' + str(j) + '_' + str(i) + '.png'
 
         image = slide.read_region((j, i), args.level, (args.size, args.size))
 
-        image = numpy.array(image)[:, :, 0:3]
+        image = numpy.array(image)[..., :3]
 
         mask = get_tissue(image)
 
-        if not is_low_contrast(image) and mask.sum() > 0.5 * args.size * args.size:
+        if not is_low_contrast(image) and mask.sum() > args.ratiotissue * args.size * args.size:
 
-            imsave(os.path.join(args.outfolder, outname), image)
+            imsave(os.path.join(base_dir, outname), image)
