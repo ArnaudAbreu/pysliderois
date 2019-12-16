@@ -4,6 +4,7 @@ import openslide
 from skimage.morphology import dilation, erosion, closing
 from skimage.morphology import disk, square
 from skimage.morphology import remove_small_holes
+from skimage.color import rgb2lab
 from skimage.measure import label
 from skimage.segmentation import mark_boundaries, relabel_sequential
 from skimage.draw import rectangle
@@ -29,13 +30,20 @@ def get_tissue(image, blacktol=0, whitetol=230):
         - binarymask: true pixels are tissue, false are background.
     """
 
-    binarymask = numpy.ones_like(image[:, :, 0], bool)
+    binarymask = numpy.zeros_like(image[..., 0], bool)
 
     for color in range(3):
         # for all color channel, find extreme values corresponding to black or white pixels
-        binarymask = numpy.logical_and(binarymask, image[:, :, color] < whitetol)
-        binarymask = numpy.logical_and(binarymask, image[:, :, color] > blacktol)
+        binarymask = binarymask | ((image[..., color] < whitetol) & (image[..., color] > blacktol))
 
+    return binarymask
+
+
+def get_tissue_v2(image, blacktol=5, whitetol=90):
+    binarymask = numpy.ones_like(image[..., 0], bool)
+    image = rgb2lab(image)
+    binarymask = binarymask & (image[..., 0] < whitetol) & (image[..., 0] > blacktol)
+    
     return binarymask
 
 
