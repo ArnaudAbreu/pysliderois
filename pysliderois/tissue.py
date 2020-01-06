@@ -1,25 +1,44 @@
 # coding: utf8
+"""
+A module to extract patches in a slide.
+
+Enable filtering on tissue surface ratio.
+Draft for hierarchical patch extraction and representation is proposed.
+"""
 import numpy
 import openslide
-from skimage.morphology import dilation, erosion, closing
+from skimage.morphology import dilation, erosion
 from skimage.morphology import disk, square
-from skimage.morphology import remove_small_holes
 from skimage.color import rgb2lab
-from skimage.measure import label
-from skimage.segmentation import mark_boundaries, relabel_sequential
-from skimage.draw import rectangle
-from joblib import Parallel, delayed
 import itertools
-from scipy.ndimage.morphology import distance_transform_edt as distance_transform
 from .util import regular_grid, magnification
 
-# coucou
-def get_tissue(image, blacktol=0, whitetol=230):
 
+class Error(Exception):
     """
-    Given an image and a tolerance on black and white pixels,
-    returns the corresponding tissue mask segmentation, i.e. true pixels
-    for the tissue, false pixels for the background.
+    Base of custom errors.
+
+    **********************
+    """
+
+    pass
+
+
+class UnknownMethodError(Error):
+    """
+    Raise when no class is found in a datafolder.
+
+    *********************************************
+    """
+
+    pass
+
+
+def get_tissue_from_rgb(image, blacktol=0, whitetol=230):
+    """
+    Return the tissue mask segmentation of an image.
+
+    True pixels for the tissue, false pixels for the background.
 
     Arguments:
         - image: numpy ndarray, rgb image.
@@ -28,8 +47,8 @@ def get_tissue(image, blacktol=0, whitetol=230):
 
     Returns:
         - binarymask: true pixels are tissue, false are background.
-    """
 
+    """
     binarymask = numpy.zeros_like(image[..., 0], bool)
 
     for color in range(3):
@@ -39,18 +58,58 @@ def get_tissue(image, blacktol=0, whitetol=230):
     return binarymask
 
 
-def get_tissue_v2(image, blacktol=5, whitetol=90):
+def get_tissue_from_lab(image, blacktol=5, whitetol=90):
+    """
+    Return the tissue mask segmentation of an image.
+
+    This version operates in the lab space, conversion of the image from
+    rgb to lab is performed first.
+
+    Arguments:
+        - image: numpy ndarray, rgb image.
+        - blacktol: float or int, tolerance value for black pixels.
+        - whitetol: float or int, tolerance value for white pixels.
+
+    Returns:
+        - binarymask: true pixels are tissue, false are background.
+
+    """
     binarymask = numpy.ones_like(image[..., 0], bool)
     image = rgb2lab(image)
     binarymask = binarymask & (image[..., 0] < whitetol) & (image[..., 0] > blacktol)
-    
     return binarymask
+
+
+def get_tissue(image, blacktol=5, whitetol=90, method="lab"):
+    """
+    Return the tissue mask segmentation of an image.
+
+    One can choose the segmentation method.
+
+    Arguments:
+        - image: numpy ndarray, rgb image.
+        - blacktol: float or int, tolerance value for black pixels.
+        - whitetol: float or int, tolerance value for white pixels.
+        - method: str, one of 'lab' or 'rgb', function to be called.
+
+    Returns:
+        - binarymask: true pixels are tissue, false are background.
+
+    """
+    if method not in ["lab", "rgb"]:
+        raise UnknownMethodError("Method {} is not implemented!".format(method))
+    if method == "lab":
+        return get_tissue_from_lab(image, blacktol, whitetol)
+    if method == "rgb":
+        return get_tissue_from_rgb(image, blacktol, whitetol)
 
 
 def slide_rois(slide, level, psize, interval, offsetx=0, offsety=0, coords=True, tissue=True):
     """
+    Return the absolute coordinates of patches.
+
     Given a slide, a pyramid level, a patchsize in pixels, an interval in pixels
-    and an offset in pixels, returns the absolute coordinates of patches.
+    and an offset in pixels.
 
     Arguments:
         - slide: openslide object.
@@ -65,6 +124,7 @@ def slide_rois(slide, level, psize, interval, offsetx=0, offsety=0, coords=True,
     Yields:
         - image: numpy array rgb image.
         - coords: tuple of numpy arrays, (icoords, jcoords).
+
     """
     if tissue:
         for patch in slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
@@ -76,8 +136,10 @@ def slide_rois(slide, level, psize, interval, offsetx=0, offsety=0, coords=True,
 
 def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
     """
+    Return the absolute coordinates of patches.
+
     Given a slide, a pyramid level, a patchsize in pixels, an interval in pixels
-    and an offset in pixels, returns the absolute coordinates of patches.
+    and an offset in pixels.
 
     Arguments:
         - slide: openslide object.
@@ -91,6 +153,7 @@ def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
     Yields:
         - image: numpy array rgb image.
         - coords: tuple of numpy arrays, (icoords, jcoords).
+
     """
     dim = slide.level_dimensions[level]
     mag = magnification(slide, level)
@@ -110,8 +173,10 @@ def slide_rois_(slide, level, psize, interval, offsetx, offsety, coords):
 
 def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
     """
+    Return the absolute coordinates of patches.
+
     Given a slide, a pyramid level, a patchsize in pixels, an interval in pixels
-    and an offset in pixels, returns the absolute coordinates of patches.
+    and an offset in pixels.
 
     Arguments:
         - slide: openslide object.
@@ -125,6 +190,7 @@ def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
     Yields:
         - image: numpy array rgb image.
         - coords: tuple of numpy arrays, (icoords, jcoords).
+
     """
     dim = slide.level_dimensions[level]
     mag = magnification(slide, level)
@@ -144,10 +210,10 @@ def slide_rois_tissue_(slide, level, psize, interval, offsetx, offsety, coords):
 
 
 def gen_patch_coords(shape, psize, offseti=0, offsetj=0):
-
     """
-    Given a shape, a patchsize in pixels and an offset in pixels,
-    returns the coordinates of patches.
+    Return the coordinates of patches.
+
+    Given a shape, a patchsize in pixels and an offset in pixels.
 
     Arguments:
         - shape: tuple of int shape of the image to patchify.
@@ -157,8 +223,8 @@ def gen_patch_coords(shape, psize, offseti=0, offsetj=0):
 
     Returns:
         - coords: tuple of numpy arrays, (icoords, jcoords).
-    """
 
+    """
     maxi = max([offseti + psize, psize * int(shape[0] / psize)])
     maxj = max([offsetj + psize, psize * int(shape[1] / psize)])
     # print('gen_patch_coords: ', maxi, maxj)
@@ -175,11 +241,12 @@ def gen_patch_coords(shape, psize, offseti=0, offsetj=0):
 
 
 def get_patch_children(node):
+    """
+    Return the children patches.
+
+    Given a patch.
 
     """
-    Given a patch returns the children patches.
-    """
-
     x, y, level, size = node
 
     if level == 0:
@@ -197,11 +264,11 @@ def get_patch_children(node):
 
 
 def naive_patch_placement_optimization(mask, psize, verbose=False):
-
     """
-    Given a mask and a patchsize in pixels, find the optimal
-    non-overlapping patch placement (the one that have the bigest
-    intersection with the mask)
+    Find optimal non-overlapping patch placement.
+
+    The one that have the bigest
+    intersection with the mask, given a mask and a patchsize in pixels.
 
     Arguments:
         - mask: numpy ndarray, binary mask of tissue.
@@ -209,8 +276,8 @@ def naive_patch_placement_optimization(mask, psize, verbose=False):
 
     Returns:
         - coordinates: tuple of numpy arrays (icoords, jcoords).
-    """
 
+    """
     offsets = itertools.product(list(range(psize)), list(range(psize)))
     placements = [gen_patch_coords(mask.shape, psize, o[0], o[1]) for o in offsets]
     scores = []
@@ -262,10 +329,10 @@ def naive_patch_placement_optimization(mask, psize, verbose=False):
 
 
 def tile_at_level(slide, patchsize, level2tile, verbose=False):
-
     """
-    Given a slide, a patchsize, a level max and a level to tile in the resolution pyramid,
-    returns the placement at the level to tile.
+    Return the placement of patches.
+
+    Given a slide, a patchsize, a level max and a level in resolution pyramid.
 
     Arguments:
         - slide: OpenSlide object.
@@ -275,8 +342,8 @@ def tile_at_level(slide, patchsize, level2tile, verbose=False):
     Returns:
         - coordinates: list of tuples, (x, y, level, size) of patches at
         level2tile.
-    """
 
+    """
     imlowres = numpy.array(slide.read_region((0, 0), level2tile, slide.level_dimensions[level2tile]))[:, :, 0:3]
     masklowres = get_tissue(imlowres)
 
@@ -295,12 +362,18 @@ def tile_at_level(slide, patchsize, level2tile, verbose=False):
 
 
 class PatchTree:
+    """
+    Convenient structure to store hierarchical patch representation of a slide.
+
+    ***************************************************************************
+    """
 
     def __init__(self, slide, patchsize, levelmax, levelmin, verbose=False):
-
         """
-        """
+        Instantiate object, build trees.
 
+        ********************************
+        """
         self.slide = slide
         self.patchsize = patchsize
         self.levelmax = levelmax
@@ -325,10 +398,11 @@ class PatchTree:
         self.build()
 
     def build_patch_tree(self, nodes):
-
         """
-        """
+        Build patch tree.
 
+        *****************
+        """
         level = nodes[0][2]
 
         if level > self.levelmin:
@@ -350,10 +424,11 @@ class PatchTree:
             self.build_patch_tree(next_nodes)
 
     def set_children2read(self, node, level2read):
-
         """
-        """
+        Build children for read tree.
 
+        *****************************
+        """
         if node not in self.children_read.keys():
 
             self.children_read[node] = dict()
@@ -388,10 +463,11 @@ class PatchTree:
         self.children_read[node][level2read] = read_level_dico
 
     def build_read_tree(self, nodes):
-
         """
-        """
+        Build single-node sub-tree.
 
+        ***************************
+        """
         level = nodes[0][2]
         level2read = level - self.deltaread
 
@@ -416,13 +492,19 @@ class PatchTree:
             self.build_read_tree(children)
 
     def build(self):
+        """
+        Build the patch tree with recursive procedures.
 
+        ***********************************************
+        """
         self.build_patch_tree(self.inipatches)
         self.build_read_tree(self.inipatches)
 
     def images_in_node_at_level(self, node, level, warnings):
-
         """
+        Yield images in a node at a given level.
+
+        ****************************************
         """
         if node not in self.children_read.keys():
 
@@ -456,10 +538,11 @@ class PatchTree:
             yield coord, patchpyramidlevel['imcoords'][coord], im
 
     def images_at_level(self, level, warnings=True):
-
         """
-        """
+        Yield images at a given level.
 
+        ******************************
+        """
         readlevel = level + self.deltaread
 
         # if level + deltaread >= levelmax, use inipatches as nodes
